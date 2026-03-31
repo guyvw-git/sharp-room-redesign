@@ -1,0 +1,86 @@
+{
+  "design_name": "cinematic_movie_room",
+  "style": "Immersive dark home theater with large projection screen, tiered sectional seating, and acoustic wall treatment.",
+  "ambient_mood": "dim",
+  "reasoning": "The room's 6.4m depth provides excellent throw distance for a projector screen mounted flush to the north wall, with the sectional sofa positioned at the midpoint for an optimal viewing angle. Acoustic panels on both east and west walls address parallel-surface flutter echo and create a defined theater atmosphere. Dark velvet and walnut materials absorb ambient light and reinforce the cinematic mood.",
+  "elements": [
+    {
+      "type": "projector_screen",
+      "position_x": -0.115,
+      "position_z": 9.072,
+      "wall": "north",
+      "width_m": 2.8,
+      "height_m": 1.575,
+      "floor_clearance_m": 0.9,
+      "material": "projector_screen",
+      "n_gaussians": 200000,
+      "notes": "Wall-mounted on north wall, centered on room width, 16:9 aspect ratio at 2.8m wide"
+    },
+    {
+      "type": "sectional_sofa",
+      "position_x": -0.115,
+      "position_z": 6.15,
+      "wall": "none",
+      "width_m": 2.475,
+      "height_m": 0.85,
+      "depth_m": 1.5,
+      "floor_clearance_m": 0.0,
+      "material": "dark_velvet",
+      "n_gaussians": 600000,
+      "notes": "L-shaped sectional facing north screen; 0.5m from west wall, 0.5m from east wall clearance maintained"
+    },
+    {
+      "type": "coffee_table",
+      "position_x": -0.115,
+      "position_z": 7.45,
+      "wall": "none",
+      "width_m": 1.1,
+      "height_m": 0.42,
+      "depth_m": 0.55,
+      "floor_clearance_m": 0.0,
+      "material": "dark_walnut",
+      "top_material": "dark_stone",
+      "n_gaussians": 120000,
+      "notes": "Centered between sofa and screen; 0.8m walkway preserved in front of sofa"
+    },
+    {
+      "type": "acoustic_panel",
+      "position_x": 1.572,
+      "position_z": 5.864,
+      "wall": "east",
+      "width_m": 0.06,
+      "height_m": 1.2,
+      "depth_m": 2.4,
+      "floor_clearance_m": 0.9,
+      "material": "dark_fabric",
+      "n_gaussians": 80000,
+      "notes": "East wall mid-room acoustic panel, ear-height mounting"
+    },
+    {
+      "type": "acoustic_panel",
+      "position_x": -1.703,
+      "position_z": 5.864,
+      "wall": "west",
+      "width_m": 0.06,
+      "height_m": 1.2,
+      "depth_m": 2.4,
+      "floor_clearance_m": 0.9,
+      "material": "dark_fabric",
+      "n_gaussians": 80000,
+      "notes": "West wall mid-room acoustic panel, ear-height mounting, mirrored from east"
+    },
+    {
+      "type": "wall_panels",
+      "position_x": -0.115,
+      "position_z": 2.706,
+      "wall": "south",
+      "width_m": 3.0,
+      "height_m": 2.5,
+      "depth_m": 0.05,
+      "floor_clearance_m": 0.0,
+      "material": "dark_walnut",
+      "n_gaussians": 150000,
+      "notes": "Decorative slatted walnut paneling on south wall behind seating"
+    }
+  ]
+}
