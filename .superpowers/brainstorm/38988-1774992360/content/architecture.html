@@ -1,0 +1,88 @@
+<h2>System architecture</h2>
+<p class="subtitle">"Turn this into an IKEA kitchen" → room stays, content is replaced</p>
+
+<div style="font-family:monospace;background:#1a1a2e;color:#e0e0f0;padding:24px;border-radius:8px;font-size:13px;line-height:1.8">
+
+<div style="color:#888;margin-bottom:16px">▶ User: "Turn this into an IKEA kitchen"</div>
+
+<div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;align-items:start">
+
+  <div style="color:#7ec8e3;font-weight:bold">1. Room Analyzer</div>
+  <div>Reads PLY → extracts <em>real</em> geometry<br>
+    <span style="color:#aaa;font-size:11px">
+    north wall Z=11.24 · south Z=2.18 · width=4.8m · depth=9.1m<br>
+    floor Y=1.425 · ceiling Y=-1.647 · height=3.07m<br>
+    window at X=-1.2 to -0.4, Z=2.3 (density gap in wall)<br>
+    → content Gaussians = anything NOT within 15cm of structure
+    </span>
+  </div>
+
+  <div style="color:#7ec8e3;font-weight:bold;margin-top:12px">2. Claude Reasoner</div>
+  <div style="margin-top:12px">Prompt + room dims → structured scene plan<br>
+    <span style="color:#aaa;font-size:11px">
+    "IKEA kitchen in 4.8m × 9.1m room →<br>
+    SEKTION line (white, handleless) → L-shape:<br>
+    · 4× base cabinet 60cm along north wall (Z=10.6–11.1)<br>
+    · 4× upper cabinet above (Y offset −0.9m)<br>
+    · countertop slab, 3cm quartz-look<br>
+    · integrated fridge at east end (X=2.1)<br>
+    · island 1.2m × 2.4m centered at (X=0, Z=7.0)<br>
+    · keep window clear at X=−1.2 to −0.4"
+    </span>
+  </div>
+
+  <div style="color:#7ec8e3;font-weight:bold;margin-top:12px">3. Furniture Generator</div>
+  <div style="margin-top:12px">Scene plan → proper 3D geometry → Gaussians<br>
+    <span style="color:#aaa;font-size:11px">
+    Each piece: real IKEA dimensions, proper geometry<br>
+    Cabinet = body + door frame + inset panel + handle + toe kick<br>
+    Materials: white laminate, oak veneer, quartz, brushed steel<br>
+    Density: 500K Gaussians/m² of surface area<br>
+    Scale: exp(−5.5) splat size for sharp detail
+    </span>
+  </div>
+
+  <div style="color:#7ec8e3;font-weight:bold;margin-top:12px">4. Scene Assembler</div>
+  <div style="margin-top:12px">Merges structure + new content → output PLY<br>
+    <span style="color:#aaa;font-size:11px">
+    Keep: floor, walls, ceiling Gaussians (unchanged)<br>
+    Remove: content Gaussians (opacity → −10)<br>
+    Add: generated furniture Gaussians<br>
+    → output/kitchen.ply
+    </span>
+  </div>
+
+</div>
+
+<div style="margin-top:24px;color:#888">▶ User: "Also add a coffee machine on the island counter"</div>
+<div style="color:#aaa;font-size:11px;margin-top:4px">
+  Reasoner knows island is at (0, 7.0), counter surface Y=0.87<br>
+  Generates coffee machine Gaussians at counter level<br>
+  Appends to existing output PLY → rerenders
+</div>
+
+</div>
+
+<div style="margin-top:20px" class="section">
+  <h3>What makes this look good (not boxes)</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px">
+    <div>
+      <div class="label">Real IKEA dimensions</div>
+      <p style="font-size:13px">SEKTION base = 70cm H × 38cm D. Units are exact, not guessed. Cabinet doors are modeled as frame + inset panel, 4cm border.</p>
+    </div>
+    <div>
+      <div class="label">Material appearance</div>
+      <p style="font-size:13px">White laminate: smooth with warm off-white. Oak: sinusoidal grain along grain axis. Quartz countertop: veined pattern via FBM noise. AO darkening in corners.</p>
+    </div>
+    <div>
+      <div class="label">Gaussian density</div>
+      <p style="font-size:13px">Current: ~80K/element. Target: 500K/m² of surface. Smaller splat scale (exp−5.5 vs exp−4.8) = sharper edges.</p>
+    </div>
+    <div>
+      <div class="label">Room-aware placement</div>
+      <p style="font-size:13px">Everything placed relative to measured wall positions. Window clearances respected. "Won't put a cabinet in front of the window."</p>
+    </div>
+  </div>
+</div>
+
+<p style="margin-top:16px;font-size:13px;color:#666">Does this architecture match what you had in mind? Let me know in terminal.</p>

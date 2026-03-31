@@ -1,0 +1,66 @@
+<h2>Direct 3D reasoning approaches</h2>
+<p class="subtitle">No image generation. The LLM reasons directly about the Gaussian splat and writes new Gaussians.</p>
+
+<div class="options">
+  <div class="option" data-choice="A" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>LLM Scene Understanding + Primitive Composition <span style="background:#2a7a2a;color:#fff;font-size:10px;padding:2px 6px;border-radius:10px;margin-left:6px">Recommended</span></h3>
+      <p>Claude reads the PLY statistics (positions, colors, density distribution), reasons about the room's actual dimensions and layout, then composes the redesign from a library of properly-modeled 3D primitives — not boxes, but actual furniture geometry: cabinet frames with door panels, handles, toe kicks, drawer gaps, hinge positions.</p>
+      <p style="margin-top:8px">The quality comes from <strong>correct 3D geometry</strong> + <strong>physically-based material appearance</strong> modeled directly as Gaussian attributes (specular layers, anisotropic grain, ambient occlusion in corners).</p>
+      <div class="pros-cons" style="margin-top:8px">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Fully direct — no 2D step anywhere</li>
+          <li>Room-aware: uses actual wall positions from PLY</li>
+          <li>LLM reasoning picks the right products/layout</li>
+          <li>Buildable now, iteratively improvable</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>Quality ceiling = procedural (no learned appearance)</li>
+          <li>Needs a rich 3D geometry library per object type</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="B" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Text-Guided Gaussian Optimization (GaussianEditor-style)</h3>
+      <p>Treat the Gaussian parameters as differentiable variables. Apply a text-conditioned loss — computed directly from Gaussian renders vs a target description — and gradient-descend the Gaussian positions, colors, scales, and rotations toward the target appearance. Pure 3D optimization, no 2D image generation.</p>
+      <div class="pros-cons" style="margin-top:8px">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Truly learned appearance, not procedural</li>
+          <li>Can produce photorealistic results</li>
+          <li>Operates directly on Gaussian parameters</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>Requires GPU + differentiable 3DGS renderer</li>
+          <li>Still needs a scoring model (CLIP, SDS loss) — those models are trained on images</li>
+          <li>Optimization can be unstable for large scene changes</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="C" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>3D Generative Model (text-to-scene 3DGS)</h3>
+      <p>Use a model trained to generate large-scale 3DGS scenes directly from text — LucidDreamer, SceneWiz3D, or similar. These generate in Gaussian parameter space, conditioned on the text prompt and optionally the existing room geometry.</p>
+      <div class="pros-cons" style="margin-top:8px">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Full learned scene generation</li>
+          <li>Best possible quality ceiling</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>Scene-scale 3DGS generation is still research-stage</li>
+          <li>Hard to condition on an existing room structure</li>
+          <li>Large model requirements</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p style="margin-top:16px;font-size:13px;color:#666">Let me know which resonates — or reply in terminal.</p>

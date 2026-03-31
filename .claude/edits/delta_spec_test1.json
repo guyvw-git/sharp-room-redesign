@@ -1,0 +1,12 @@
+{
+  "strategy": "opacity_edit",
+  "target_indices": "spatial_outliers",
+  "outlier_params": {
+    "method": "local_density",
+    "k_neighbors": 10,
+    "density_threshold_percentile": 15
+  },
+  "operations": [
+    {"property": "opacity", "op": "set", "value": -10.0}
+  ]
+}

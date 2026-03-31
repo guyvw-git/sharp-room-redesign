@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Splat Viewer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #1a1a1a; overflow: hidden; }
+    #status {
+      position: fixed; top: 12px; left: 12px;
+      color: #fff; font: 14px monospace;
+      background: rgba(0,0,0,0.5); padding: 6px 10px; border-radius: 4px;
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+  <div id="status">Loading...</div>
+  <script src="/public/gs-bundle.js"></script>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const file   = params.get('file')   || '/references/aidemo1.ply';
+    // side: 0=+Z (default), 1=-Z (flip), 2=+X, 3=-X
+    const side   = parseInt(params.get('side') || '0');
+    const status = document.getElementById('status');
+
+    window.renderComplete = false;
+    window.renderError    = null;
+
+    const viewer = new GS.Viewer({
+      selfDrivenMode:     true,
+      useBuiltInControls: true,
+      gpuAcceleratedSort: false,
+      sceneRevealMode:    2,   // Instant — skip fade-in
+    });
+
+    viewer.addSplatScene(file, {
+      splatAlphaRemovalThreshold: 5,
+      showLoadingUI: false,
+    })
+    .then(() => {
+      const box    = viewer.splatMesh.computeBoundingBox(true);
+      const center = new THREE.Vector3();
+      const size   = new THREE.Vector3();
+      box.getCenter(center);
+      box.getSize(size);
+
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const dist   = maxDim * 0.9;  // closer — fill the frame
+      const elev   = maxDim * 0.15;
+
+      // Orbit directions: try 'side' param to pick the best face
+      const offsets = [
+        new THREE.Vector3( 0, elev,  dist),   // 0: +Z front
+        new THREE.Vector3( 0, elev, -dist),   // 1: -Z back → flip
+        new THREE.Vector3( dist, elev, 0),    // 2: +X right
+        new THREE.Vector3(-dist, elev, 0),    // 3: -X left
+      ];
+      const camPos = center.clone().add(offsets[side] || offsets[0]);
+
+      viewer.camera.position.copy(camPos);
+      viewer.camera.up.set(0, -1, 0);  // 3DGS Y-down convention
+      viewer.camera.lookAt(center);
+      if (viewer.controls) {
+        viewer.controls.target.copy(center);
+        viewer.controls.update();
+      }
+
+      viewer.start();
+      status.textContent = 'Sorting…';
+
+      let frames = 0;
+      let sortEverStarted = false;
+      let sortDoneFrame = null;
+      const MIN_FRAMES = 30;        // always render at least this many frames
+      const SETTLE_AFTER_SORT = 5; // extra frames after sort finishes
+
+      const orig = viewer.renderer.render.bind(viewer.renderer);
+      viewer.renderer.render = function(...args) {
+        orig(...args);
+        frames++;
+
+        if (viewer.sortRunning) sortEverStarted = true;
+
+        // Mark when the sort first goes idle after having run
+        if (sortEverStarted && !viewer.sortRunning && sortDoneFrame === null) {
+          sortDoneFrame = frames;
+        }
+
+        const settled = frames >= MIN_FRAMES && sortDoneFrame !== null && (frames - sortDoneFrame) >= SETTLE_AFTER_SORT;
+
+        if (!window.renderComplete && settled) {
+          window.renderComplete = true;
+          status.textContent = `Render complete — frame ${frames}`;
+        }
+      };
+    })
+    .catch(err => {
+      window.renderError = err.message;
+      status.textContent = 'Error: ' + err.message;
+      console.error(err);
+    });
+  </script>
+</body>
+</html>

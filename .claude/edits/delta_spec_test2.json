@@ -1,0 +1,9 @@
+{
+  "strategy": "sh_edit",
+  "target_indices": "ALL",
+  "operations": [
+    {"property": "f_dc_0", "op": "multiply", "r_factor": 1.45, "g_factor": 1.0, "b_factor": 1.0},
+    {"property": "f_dc_1", "op": "multiply", "r_factor": 1.0, "g_factor": 0.88, "b_factor": 1.0},
+    {"property": "f_dc_2", "op": "multiply", "r_factor": 1.0, "g_factor": 1.0, "b_factor": 0.58}
+  ]
+}

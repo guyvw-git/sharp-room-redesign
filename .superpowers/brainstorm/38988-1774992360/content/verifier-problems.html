@@ -1,0 +1,65 @@
+<h2>Visual verifier — what's broken and what needs rebuilding</h2>
+<p class="subtitle">Two separate problems: infrastructure is broken, and the rubric scores the wrong things</p>
+
+<div class="section">
+  <h3>🔴 Infrastructure — completely broken today</h3>
+  <div style="font-family:monospace;background:#1a1a1a;color:#f08080;padding:16px;border-radius:6px;font-size:12px;line-height:1.8">
+    <div>POST http://localhost:<strong>FILL_IN_PORT</strong>/render    ← never filled in</div>
+    <div>output/splats/<strong>latest.splat</strong>                 ← wrong path, wrong format (it's a .ply)</div>
+    <div>Navigate Chrome to render URL                 ← we use Playwright via screenshot.js, not Chrome nav</div>
+    <div>/tmp/splat_verify_screenshot.png              ← not timestamped, gets overwritten silently</div>
+  </div>
+  <p style="font-size:13px;margin-top:8px">The agent as written has never worked against the actual render pipeline. It needs to call <code>bash scripts/render_screenshot.sh &lt;ply&gt; &lt;label&gt; &lt;side&gt;</code> and read the timestamped PNG it produces.</p>
+</div>
+
+<div class="section">
+  <h3>🔴 Rubric — scores the wrong things for room redesign</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px">
+    <div style="background:#2a1a1a;padding:12px;border-radius:6px;border-left:3px solid #f08080">
+      <div style="font-size:11px;color:#f08080;font-weight:bold;margin-bottom:6px">CURRENT (wrong)</div>
+      <ul style="font-size:12px;color:#ccc;margin:0;padding-left:16px">
+        <li>Reference image match — compares to a golden that doesn't exist for new designs</li>
+        <li>Geometry completeness — checks for holes, not whether the RIGHT geometry is present</li>
+        <li>Color fidelity — checks color accuracy, not whether materials look realistic</li>
+        <li>Splat density — checks if sparse, not if new content has appropriate density</li>
+        <li>Edge quality — floater check only, no semantic content check</li>
+      </ul>
+    </div>
+    <div style="background:#1a2a1a;padding:12px;border-radius:6px;border-left:3px solid #80c080">
+      <div style="font-size:11px;color:#80c080;font-weight:bold;margin-bottom:6px">NEEDED (new)</div>
+      <ul style="font-size:12px;color:#ccc;margin:0;padding-left:16px">
+        <li><strong>Room structure integrity</strong> — walls/floor/ceiling look like original, no damage</li>
+        <li><strong>Content removal cleanliness</strong> — no bleed-through of removed furniture</li>
+        <li><strong>Semantic correctness</strong> — does it actually look like what was asked? ("kitchen" → cabinets, counter, appliances)</li>
+        <li><strong>New content realism</strong> — does the new content look 3D and plausible, not like flat colored boxes?</li>
+        <li><strong>Integration coherence</strong> — scale, lighting, placement feel right for the room</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>🟡 Missing: multi-angle verification</h3>
+  <p style="font-size:13px">One screenshot from one angle isn't enough. You need:</p>
+  <div style="display:flex;gap:12px;margin-top:8px">
+    <div style="flex:1;background:#1e1e2e;padding:12px;border-radius:6px;font-size:12px">
+      <strong style="color:#7ec8e3">Front (side=1)</strong><br>
+      Main view of room. Verify: room looks right, new content visible in correct zone.
+    </div>
+    <div style="flex:1;background:#1e1e2e;padding:12px;border-radius:6px;font-size:12px">
+      <strong style="color:#7ec8e3">Side (side=2)</strong><br>
+      Profile view. Verify: cabinet heights correct, not floating, floor intact.
+    </div>
+    <div style="flex:1;background:#1e1e2e;padding:12px;border-radius:6px;font-size:12px">
+      <strong style="color:#7ec8e3">Zoomed content</strong><br>
+      Close-up of new content zone. Verify: geometry detail, material quality, no artifacts.
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>🟡 Missing: prompt-awareness</h3>
+  <p style="font-size:13px">The verifier must know what was asked for. "IKEA kitchen" → look for cabinets, counter, appliances. "Movie room" → look for screen, seating, dark tones. The rubric should be generated dynamically from the prompt — a static rubric can't score semantic correctness.</p>
+</div>
+
+<p style="font-size:13px;color:#666;margin-top:16px">Full rewrite needed. Continuing in terminal with the specifics.</p>

@@ -1,0 +1,70 @@
+<h2>Three approaches to photorealistic room redesign</h2>
+<p class="subtitle">All use Gemini to generate reference imagery. The difference is how that becomes 3D Gaussian splats.</p>
+
+<div class="options">
+  <div class="option" data-choice="A" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Gemini Image → TripoSR Mesh → Gaussian Sampling <span style="background:#2a7a2a;color:#fff;font-size:10px;padding:2px 6px;border-radius:10px;margin-left:6px">Recommended</span></h3>
+      <p>For each piece of furniture in the redesign: Gemini generates a clean isolated product render → TripoSR (open-source image-to-mesh model) reconstructs a textured 3D mesh → surface Gaussians are sampled from the mesh with real UV colors baked in.</p>
+      <div class="pros-cons" style="margin-top:8px">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Real object geometry, not boxes</li>
+          <li>Colors come from photo-quality renders</li>
+          <li>Open-source, runs locally</li>
+          <li>Each object looks like the actual product</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>TripoSR needs to be installed (pip install)</li>
+          <li>Minutes per object on CPU</li>
+          <li>Mesh-to-Gaussian step loses some fidelity</li>
+        </ul></div>
+      </div>
+      <p style="margin-top:8px;font-size:12px;color:#888">Pipeline: Prompt → Claude reasons layout → Gemini renders each item → TripoSR → mesh → sample Gaussians → place in scene</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="B" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Gemini Multi-View → Mini 3DGS Training</h3>
+      <p>Gemini generates 8–16 views of each object from different angles → those images are used to train a mini 3DGS model per object (like the original NeRF/3DGS method) → the trained Gaussians are extracted and injected into the scene.</p>
+      <div class="pros-cons" style="margin-top:8px">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Highest possible quality</li>
+          <li>True photorealistic Gaussians</li>
+          <li>View-dependent appearance (SH)</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>Hours per object on CPU</li>
+          <li>Complex pipeline to orchestrate</li>
+          <li>Requires consistent multi-view generation from Gemini</li>
+        </ul></div>
+      </div>
+      <p style="margin-top:8px;font-size:12px;color:#888">Pipeline: Prompt → Claude reasons layout → Gemini renders 12 views per item → 3DGS training per item → inject</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="C" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Gemini Full-Scene Render → Depth Lift</h3>
+      <p>Instead of per-object generation, Gemini renders the entire redesigned room as a single high-quality image (with your actual room photo as reference) → a depth model (ZoeDepth/MiDaS) lifts it to 3D → Gaussians are placed at those depth positions.</p>
+      <div class="pros-cons" style="margin-top:8px">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Holistic, coherent scene composition</li>
+          <li>Gemini can see the actual room context</li>
+          <li>Fastest of the three</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>Depth estimation is noisy — Gaussians are imprecise</li>
+          <li>Single-view: no parallax, breaks on movement</li>
+          <li>Doesn't integrate cleanly with existing room structure</li>
+        </ul></div>
+      </div>
+      <p style="margin-top:8px;font-size:12px;color:#888">Pipeline: Prompt + room screenshot → Gemini redesigns full scene → ZoeDepth → Gaussian point cloud → inject</p>
+    </div>
+  </div>
+</div>
+
+<p style="margin-top:16px;font-size:13px;color:#666">Take a look and let me know which direction resonates. Or reply in terminal.</p>
