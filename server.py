@@ -178,11 +178,18 @@ def _ai_makeover(image_path: str, prompt: str, session_id: str) -> Path:
 # ── SHARP (local LAN splat server) ───────────────────────────────────────────
 SHARP_URL = 'http://localhost:3001/splat'  # SSH tunnel — image upload only (small)
 
-def _run_sharp(image_path: str) -> dict:
-    with open(image_path, 'rb') as f:
-        resp = req_lib.post(SHARP_URL, files={'image': f}, timeout=600)
-    resp.raise_for_status()
-    return resp.json()
+def _run_sharp(image_path: str, _retries: int = 2) -> dict:
+    for attempt in range(1, _retries + 2):
+        try:
+            with open(image_path, 'rb') as f:
+                resp = req_lib.post(SHARP_URL, files={'image': f}, timeout=600)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:
+            if attempt <= _retries:
+                print(f'[sharp] attempt {attempt} failed ({e}), retrying...')
+            else:
+                raise
 
 
 if __name__ == '__main__':

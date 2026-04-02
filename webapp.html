@@ -453,6 +453,13 @@ async function go() {
     } else if (ev.type === 'error') {
       es.close();
       console.error('[redesign] pipeline error', ev.message);
+      // Stop any spinning steps
+      for (const [id, el] of Object.entries(stepEls)) {
+        if (el.classList.contains('running')) {
+          el.classList.replace('running', 'error');
+          el.querySelector('.step-icon').innerHTML = iconFor('error');
+        }
+      }
       upsertStep(runPrefix + 'err', 'Error', 'error', ev.message);
       runBtn.disabled = false;
     }
