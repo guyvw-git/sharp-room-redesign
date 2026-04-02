@@ -1,0 +1,29 @@
+# OS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Node
+node_modules/
+
+# PLY files (large binary — generated at runtime)
+output/*.ply
+.claude/backups/*.ply
+assets/*.ply
+input/*.ply
+
+# Runtime uploads & generated content
+.claude/uploads/
+.claude/renders/
+.claude/screenshots/
+.claude/segments/
+
+# Superpowers / internal tooling
+.superpowers/
+
+# Cloudflared / tunnel state
+tunnel_url
+cloudflared.log

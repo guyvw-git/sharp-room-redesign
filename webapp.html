@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Room Redesign</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0d0d0d;
+      color: #e0e0e0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Top bar ─────────────────────────────────────────────── */
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
+      background: #141414;
+      border-bottom: 1px solid #252525;
+      flex-shrink: 0;
+    }
+
+    .upload-btn {
+      position: relative;
+      width: 42px; height: 42px;
+      border-radius: 8px;
+      border: 1.5px dashed #3a3a3a;
+      background: #1a1a1a;
+      cursor: pointer;
+      flex-shrink: 0;
+      overflow: hidden;
+      display: flex; align-items: center; justify-content: center;
+      transition: border-color 0.15s;
+    }
+    .upload-btn:hover { border-color: #666; }
+    .upload-btn input {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer;
+    }
+    .upload-btn .cam { font-size: 18px; pointer-events: none; }
+    .upload-btn img {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%; object-fit: cover;
+      display: none;
+    }
+
+    .prompt-wrap {
+      flex: 1;
+      position: relative;
+    }
+    .prompt-input {
+      width: 100%;
+      background: #1a1a1a;
+      border: 1px solid #2e2e2e;
+      border-radius: 8px;
+      color: #e0e0e0;
+      font-size: 14px;
+      padding: 11px 14px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .prompt-input:focus  { border-color: #4a4a4a; }
+    .prompt-input::placeholder { color: #484848; }
+
+    .run-btn {
+      padding: 10px 18px;
+      background: #2563eb;
+      color: #fff;
+      border: none; border-radius: 8px;
+      font-size: 13px; font-weight: 500;
+      cursor: pointer; flex-shrink: 0;
+      transition: background 0.15s, opacity 0.15s;
+      white-space: nowrap;
+    }
+    .run-btn:hover:not(:disabled) { background: #3b82f6; }
+    .run-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* ── Main area ───────────────────────────────────────────── */
+    .main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* Viewer */
+    .viewer-wrap {
+      flex: 1;
+      position: relative;
+      background: #0a0a0a;
+      overflow: hidden;
+    }
+
+    .drop-hint {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 10px;
+      color: #383838;
+      pointer-events: none;
+      user-select: none;
+    }
+    .drop-hint .icon { font-size: 52px; }
+    .drop-hint .text { font-size: 13px; }
+
+    .viewer-btns {
+      position: absolute;
+      bottom: 18px; left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      display: none;
+      gap: 8px;
+      align-items: center;
+    }
+    .orbit-btn, .pc-btn {
+      padding: 8px 18px;
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 20px;
+      color: #ccc;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+      transition: background 0.15s, color 0.15s;
+      white-space: nowrap;
+    }
+    .orbit-btn:hover, .pc-btn:hover { background: rgba(255,255,255,0.13); color: #fff; }
+    .orbit-btn.active { background: rgba(99,102,241,0.35); border-color: rgba(99,102,241,0.6); color: #fff; }
+    .pc-btn.active    { background: rgba(16,185,129,0.35);  border-color: rgba(16,185,129,0.6);  color: #fff; }
+
+    #gs-root {
+      width: 100%; height: 100%;
+      position: relative;
+    }
+
+    /* ── Sidebar ─────────────────────────────────────────────── */
+    .sidebar {
+      width: 290px;
+      flex-shrink: 0;
+      background: #111;
+      border-left: 1px solid #222;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .sidebar-title {
+      padding: 12px 14px 8px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #555;
+      border-bottom: 1px solid #1e1e1e;
+      flex-shrink: 0;
+    }
+
+    .log {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0 16px;
+    }
+    .log::-webkit-scrollbar { width: 4px; }
+    .log::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
+
+    /* Preview image */
+    .preview-block {
+      padding: 10px 14px;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    .preview-block .plabel {
+      font-size: 9px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #484848;
+      margin-bottom: 6px;
+    }
+    .preview-block img {
+      width: 100%; border-radius: 5px; display: block;
+    }
+
+    /* Step row */
+    .step {
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+      padding: 9px 14px;
+      border-bottom: 1px solid #181818;
+    }
+
+    .step-icon {
+      flex-shrink: 0;
+      margin-top: 1px;
+      width: 14px; height: 14px;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    /* spinner */
+    .spin-ring {
+      width: 12px; height: 12px;
+      border: 1.5px solid #333;
+      border-top-color: #888;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .step-body { flex: 1; min-width: 0; }
+
+    .step-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: #bbb;
+      line-height: 1.4;
+    }
+    .step.running .step-label { color: #e0e0e0; }
+    .step.done    .step-label { color: #999; }
+    .step.error   .step-label { color: #f87171; }
+
+    .step-detail {
+      font-size: 10.5px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      color: #525252;
+      white-space: pre-wrap;
+      word-break: break-all;
+      margin-top: 3px;
+      line-height: 1.5;
+    }
+
+    .step-time {
+      font-size: 9.5px;
+      color: #3a3a3a;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      margin-left: auto;
+      flex-shrink: 0;
+      padding-top: 1px;
+    }
+    .step.done .step-time { color: #4ade80; }
+    .step.error .step-time { color: #f87171; }
+  </style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div class="topbar">
+  <label class="upload-btn" id="upload-btn" title="Upload room photo">
+    <span class="cam">📷</span>
+    <img id="thumb">
+    <input type="file" id="photo-input" accept="image/*">
+  </label>
+
+  <div class="prompt-wrap">
+    <input
+      class="prompt-input"
+      id="prompt"
+      type="text"
+      placeholder="Describe the redesign — e.g. 'Turn this into a moody speakeasy bar with leather seating'"
+    value="Add airplane wallpaper, multiple plants and some office space with a big screen"
+      autocomplete="off"
+    >
+  </div>
+
+  <button class="run-btn" id="run-btn" disabled>Redesign →</button>
+</div>
+
+<!-- Main -->
+<div class="main">
+
+  <div class="viewer-wrap">
+    <div class="drop-hint" id="drop-hint">
+      <span class="icon">🏠</span>
+      <span class="text">Enter a prompt and hit Redesign →</span>
+    </div>
+    <div id="gs-root"></div>
+    <div class="viewer-btns" id="viewer-btns">
+      <button class="orbit-btn" id="orbit-btn">✦ Orbit</button>
+      <button class="pc-btn"    id="pc-btn">⬡ Point Cloud</button>
+    </div>
+  </div>
+
+  <div class="sidebar">
+    <div class="sidebar-title">Pipeline</div>
+    <div class="log" id="log"></div>
+  </div>
+
+</div>
+
+<script src="/public/gs-bundle.js"></script>
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let uploadedFile   = null;
+let activeViewer   = null;
+let lastEditedUrl  = null;   // URL of last AI Makeover result — used as base for next run
+let runCount       = 0;      // increments each run, used to namespace step IDs
+let runPrefix      = '';     // current run's step ID prefix
+const stepEls      = {};
+const stepStarts   = {};     // step id → Date when it started
+
+const DEFAULT_IMAGE = '/input/default_room.png';
+
+// ── Upload ────────────────────────────────────────────────────────────────────
+const photoInput = document.getElementById('photo-input');
+const thumb      = document.getElementById('thumb');
+const runBtn     = document.getElementById('run-btn');
+const promptEl   = document.getElementById('prompt');
+
+// Pre-load default image as a File object
+fetch(DEFAULT_IMAGE)
+  .then(r => r.blob())
+  .then(blob => {
+    const file = new File([blob], 'default_room.png', { type: blob.type || 'image/png' });
+    uploadedFile = file;
+    thumb.src = DEFAULT_IMAGE;
+    thumb.style.display = 'block';
+    document.querySelector('#upload-btn .cam').style.display = 'none';
+    checkReady();
+  });
+
+// Auto-load default splat on startup — defer until layout is settled
+window.addEventListener('load', async () => {
+  document.getElementById('drop-hint').style.display = 'none';
+  await loadPly('/output/default.ply');
+  viewerBtns.style.display = 'flex';
+  // Nudge camera to trigger Gaussian sort on first frame
+  if (activeViewer) {
+    const cam = activeViewer.camera;
+    cam.position.x += 0.0001;
+    if (activeViewer.controls) activeViewer.controls.update();
+    requestAnimationFrame(() => {
+      cam.position.x -= 0.0001;
+      if (activeViewer.controls) activeViewer.controls.update();
+    });
+  }
+});
+
+photoInput.addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  uploadedFile = file;
+  thumb.src = URL.createObjectURL(file);
+  thumb.style.display = 'block';
+  document.querySelector('#upload-btn .cam').style.display = 'none';
+  checkReady();
+});
+
+promptEl.addEventListener('input', checkReady);
+promptEl.addEventListener('keydown', e => {
+  e.stopPropagation();   // prevent viewer controls capturing keystrokes
+  if (e.key === 'Enter' && !runBtn.disabled) go();
+});
+promptEl.addEventListener('keyup',   e => e.stopPropagation());
+promptEl.addEventListener('keypress', e => e.stopPropagation());
+promptEl.addEventListener('focus', () => {
+  if (activeViewer && activeViewer.controls)
+    activeViewer.controls.enabled = false;
+});
+promptEl.addEventListener('blur', () => {
+  if (activeViewer && activeViewer.controls)
+    activeViewer.controls.enabled = true;
+});
+
+function checkReady() {
+  runBtn.disabled = !(uploadedFile && promptEl.value.trim());
+}
+
+// ── Run ───────────────────────────────────────────────────────────────────────
+runBtn.addEventListener('click', go);
+
+async function go() {
+  if (!uploadedFile || !promptEl.value.trim()) return;
+
+  runBtn.disabled = true;
+  stopOrbit();
+  // reset point cloud for new scene
+  if (pointsObject) { pointsObject.geometry.dispose(); pointsObject = null; }
+  pointCloudMode = false;
+  pcBtn.textContent = '⬡ Point Cloud';
+  pcBtn.classList.remove('active');
+  runCount++;
+  runPrefix = `r${runCount}_`;
+  document.getElementById('drop-hint').style.display = 'none';
+
+  // Use last AI Makeover result as base if available, otherwise original upload
+  const baseFile = await currentBaseFile();
+  addRunDivider(runCount, promptEl.value.trim());
+  addPreview(URL.createObjectURL(baseFile), lastEditedUrl ? 'Base (last edit)' : 'Original');
+
+  const form = new FormData();
+  form.append('image', baseFile);
+  form.append('prompt', promptEl.value.trim());
+
+  let sessionId;
+  try {
+    console.log('[redesign] POST /api/redesign', { prompt: promptEl.value.trim(), file: baseFile.name, size: baseFile.size });
+    const res  = await fetch('/api/redesign', { method: 'POST', body: form });
+    const data = await res.json();
+    console.log('[redesign] session response', data);
+    if (data.error) throw new Error(data.error);
+    sessionId = data.session_id;
+  } catch (err) {
+    upsertStep('err', 'Request failed', 'error', err.message);
+    runBtn.disabled = false;
+    return;
+  }
+
+  console.log('[redesign] SSE stream open /api/events/' + sessionId);
+  const es = new EventSource(`/api/events/${sessionId}`);
+
+  es.onmessage = async e => {
+    const ev = JSON.parse(e.data);
+    if (ev.type === 'ping') return;
+
+    console.log('[sse]', ev.type, ev);
+
+    if (ev.type === 'step') {
+      upsertStep(runPrefix + ev.id, ev.label, ev.status, ev.detail || '', ev.image);
+
+    } else if (ev.type === 'done') {
+      es.close();
+      const plyUrl = ev.ply_url;
+      console.log('[redesign] done — fetching PLY', plyUrl);
+
+      // Step A: browser download directly from Vast.ai (or Mac fallback)
+      upsertStep(runPrefix + 'download', 'Downloading PLY', 'running', plyUrl);
+      const dlT0 = Date.now();
+      const plyResp = await fetch(plyUrl);
+      const plyBlob = await plyResp.blob();
+      const dlSec = ((Date.now() - dlT0) / 1000).toFixed(1);
+      const sizeMB = (plyBlob.size / 1e6).toFixed(1);
+      console.log(`[redesign] PLY downloaded ${sizeMB} MB in ${dlSec}s`);
+      upsertStep(runPrefix + 'download', 'Downloading PLY', 'done', `${dlSec}s — ${sizeMB} MB`);
+
+      // Step B: parse + render (pass original URL so viewer detects .ply from extension)
+      upsertStep(runPrefix + 'load', 'Parsing & rendering', 'running', '');
+      await loadPly(plyUrl);
+      upsertStep(runPrefix + 'load', 'Parsing & rendering', 'done', 'Ready — drag to orbit');
+      viewerBtns.style.display = 'flex';
+      // Store edited image as base for next run
+      if (ev.edited_image_url) {
+        lastEditedUrl = ev.edited_image_url;
+        thumb.src = lastEditedUrl;
+      }
+      runBtn.disabled = false;
+
+    } else if (ev.type === 'error') {
+      es.close();
+      console.error('[redesign] pipeline error', ev.message);
+      upsertStep(runPrefix + 'err', 'Error', 'error', ev.message);
+      runBtn.disabled = false;
+    }
+  };
+
+  es.onerror = err => {
+    console.error('[sse] connection error', err);
+    es.close();
+    runBtn.disabled = false;
+  };
+}
+
+// ── Viewer buttons ────────────────────────────────────────────────────────────
+let orbitRaf      = null;
+let pointsObject  = null;
+let pointCloudMode = false;
+const orbitBtn    = document.getElementById('orbit-btn');
+const pcBtn       = document.getElementById('pc-btn');
+const viewerBtns  = document.getElementById('viewer-btns');
+
+orbitBtn.addEventListener('click', toggleOrbit);
+pcBtn.addEventListener('click', togglePointCloud);
+
+function toggleOrbit() {
+  if (orbitRaf) {
+    stopOrbit();
+  } else {
+    startOrbit();
+  }
+}
+
+function startOrbit() {
+  if (!activeViewer) return;
+  const controls = activeViewer.controls;
+  const camera   = activeViewer.camera;
+  const target   = controls ? controls.target.clone() : new THREE.Vector3();
+
+  if (controls) { controls.enableRotate = false; controls.enablePan = false; }
+
+  const startPos = camera.position.clone();
+  const radius   = startPos.distanceTo(target);
+  let angle      = Math.atan2(startPos.z - target.z, startPos.x - target.x);
+
+  orbitBtn.textContent = '■ Stop';
+  orbitBtn.classList.add('active');
+
+  function step() {
+    angle += 0.008;
+    camera.position.set(
+      target.x + radius * Math.cos(angle),
+      camera.position.y,
+      target.z + radius * Math.sin(angle)
+    );
+    camera.lookAt(target);
+    orbitRaf = requestAnimationFrame(step);
+  }
+  orbitRaf = requestAnimationFrame(step);
+}
+
+function stopOrbit() {
+  if (orbitRaf) { cancelAnimationFrame(orbitRaf); orbitRaf = null; }
+  orbitBtn.textContent = '✦ Orbit';
+  orbitBtn.classList.remove('active');
+  if (activeViewer && activeViewer.controls) {
+    activeViewer.controls.enableRotate = true;
+    activeViewer.controls.enablePan    = true;
+  }
+}
+
+function togglePointCloud() {
+  if (!activeViewer) return;
+  pointCloudMode = !pointCloudMode;
+
+  if (pointCloudMode) {
+    if (!pointsObject) pointsObject = buildPointCloud();
+    if (pointsObject) pointsObject.visible = true;
+    activeViewer.splatMesh.visible = false;
+    pcBtn.textContent = '✦ Splat View';
+    pcBtn.classList.add('active');
+  } else {
+    if (pointsObject) pointsObject.visible = false;
+    activeViewer.splatMesh.visible = true;
+    pcBtn.textContent = '⬡ Point Cloud';
+    pcBtn.classList.remove('active');
+  }
+}
+
+function buildPointCloud() {
+  const mesh  = activeViewer.splatMesh;
+  const total = mesh.getSplatCount ? mesh.getSplatCount() : (mesh.splatRenderCount || 0);
+  if (!total) return null;
+
+  const step  = 4;  // sample every 4th splat (~125k points)
+  const count = Math.floor(total / step);
+
+  const positions = new Float32Array(count * 3);
+  const colors    = new Float32Array(count * 3);
+  const center    = new THREE.Vector3();
+  const color     = new THREE.Vector4();
+
+  for (let i = 0; i < count; i++) {
+    mesh.getSplatCenter(i * step, center, false);
+    positions[i * 3]     = center.x;
+    positions[i * 3 + 1] = center.y;
+    positions[i * 3 + 2] = center.z;
+
+    if (mesh.getSplatColor) {
+      mesh.getSplatColor(i * step, color);
+      colors[i * 3]     = color.x;
+      colors[i * 3 + 1] = color.y;
+      colors[i * 3 + 2] = color.z;
+    } else {
+      colors[i * 3] = colors[i * 3 + 1] = colors[i * 3 + 2] = 0.85;
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('color',    new THREE.BufferAttribute(colors, 3));
+
+  const mat = new THREE.PointsMaterial({ size: 0.015, vertexColors: true, sizeAttenuation: true });
+  const pts = new THREE.Points(geo, mat);
+  pts.rotation.copy(mesh.rotation);  // match the splat's rotation
+  activeViewer.threeScene.add(pts);
+  return pts;
+}
+
+// ── Base image helper ─────────────────────────────────────────────────────────
+async function currentBaseFile() {
+  if (lastEditedUrl) {
+    const blob = await fetch(lastEditedUrl).then(r => r.blob());
+    return new File([blob], 'base.jpg', { type: blob.type || 'image/jpeg' });
+  }
+  return uploadedFile;
+}
+
+// ── Viewer ────────────────────────────────────────────────────────────────────
+function loadPly(plyPath) {
+  return new Promise((resolve, reject) => {
+    const root = document.getElementById('gs-root');
+
+    if (activeViewer) {
+      try { activeViewer.dispose(); } catch {}
+      activeViewer = null;
+    }
+    root.innerHTML = '';
+
+    const viewer = new GS.Viewer({
+      rootElement:        root,
+      selfDrivenMode:     true,
+      useBuiltInControls: true,
+      gpuAcceleratedSort: false,
+      sceneRevealMode:    2,   // instant reveal
+    });
+    activeViewer = viewer;
+
+    viewer.addSplatScene(plyPath, {
+      splatAlphaRemovalThreshold: 5,
+      showLoadingUI: false,
+    })
+    .then(() => {
+      viewer.splatMesh.rotation.y = THREE.MathUtils.degToRad(-160);
+
+      const box    = viewer.splatMesh.computeBoundingBox(true);
+      const center = new THREE.Vector3();
+      const size   = new THREE.Vector3();
+      box.getCenter(center);
+      box.getSize(size);
+
+      // Use bounding sphere radius so camera distance is correct regardless of rotation
+      const radius = size.length() * 0.5;
+      const camPos = center.clone().add(new THREE.Vector3(0, 0, radius * 0.8));
+      viewer.camera.position.copy(camPos);
+      viewer.camera.up.set(0, -1, 0);
+      viewer.camera.lookAt(center);
+      if (viewer.controls) {
+        viewer.controls.target.copy(center);
+        viewer.controls.minDistance = 0.1;
+        viewer.controls.maxDistance = Infinity;
+        viewer.controls.update();
+      }
+      viewer.start();
+      resolve();
+    })
+    .catch(reject);
+  });
+}
+
+// ── Log helpers ───────────────────────────────────────────────────────────────
+function addRunDivider(n, prompt) {
+  const el = document.createElement('div');
+  el.style.cssText = 'padding:10px 14px 6px; border-top:1px solid #222; margin-top:4px;';
+  el.innerHTML = `
+    <div style="font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#444">Run ${n}</div>
+    <div style="font-size:10.5px;color:#555;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${prompt}">${prompt}</div>`;
+  document.getElementById('log').appendChild(el);
+}
+
+function addPreview(src, label) {
+  const el = document.createElement('div');
+  el.className = 'preview-block';
+  el.innerHTML = `<div class="plabel">${label}</div><img src="${src}">`;
+  document.getElementById('log').appendChild(el);
+}
+
+function upsertStep(id, label, status, detail, image) {
+  const log = document.getElementById('log');
+  const now = Date.now();
+
+  if (status === 'running' && !stepStarts[id]) stepStarts[id] = now;
+
+  const timeStr = () => {
+    if (!stepStarts[id]) return '';
+    const ms = Date.now() - stepStarts[id];
+    return status === 'running'
+      ? `${(ms / 1000).toFixed(1)}s`
+      : `${(ms / 1000).toFixed(1)}s`;
+  };
+
+  if (stepEls[id]) {
+    const el = stepEls[id];
+    el.className = `step ${status}`;
+    el.querySelector('.step-label').textContent  = label;
+    el.querySelector('.step-detail').textContent = detail;
+    el.querySelector('.step-icon').innerHTML     = iconFor(status);
+    el.querySelector('.step-time').textContent   = timeStr();
+    if (image) {
+      const previewId = `preview-${id}`;
+      if (!document.getElementById(previewId)) {
+        const p = document.createElement('div');
+        p.id = previewId;
+        p.className = 'preview-block';
+        p.innerHTML = `<div class="plabel">${label}</div><img src="${image}">`;
+        el.insertAdjacentElement('afterend', p);
+      }
+    }
+  } else {
+    const el = document.createElement('div');
+    el.className = `step ${status}`;
+    el.innerHTML = `
+      <div class="step-icon">${iconFor(status)}</div>
+      <div class="step-body">
+        <div class="step-label">${label}</div>
+        <div class="step-detail">${detail}</div>
+      </div>
+      <div class="step-time">${timeStr()}</div>`;
+    log.appendChild(el);
+    stepEls[id] = el;
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+}
+
+// Tick running steps every second
+setInterval(() => {
+  for (const [id, el] of Object.entries(stepEls)) {
+    if (el.classList.contains('running') && stepStarts[id]) {
+      const ms = Date.now() - stepStarts[id];
+      el.querySelector('.step-time').textContent = `${(ms/1000).toFixed(1)}s`;
+    }
+  }
+}, 1000);
+
+function iconFor(status) {
+  if (status === 'done')    return '<span style="color:#4ade80;font-size:11px">✓</span>';
+  if (status === 'running') return '<div class="spin-ring"></div>';
+  if (status === 'error')   return '<span style="color:#f87171;font-size:11px">✗</span>';
+  return '<span style="color:#444;font-size:11px">○</span>';
+}
+</script>
+</body>
+</html>
