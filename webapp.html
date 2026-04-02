@@ -118,7 +118,7 @@
       gap: 8px;
       align-items: center;
     }
-    .orbit-btn, .pc-btn {
+    .orbit-btn, .pc-btn, .dive-btn {
       padding: 8px 18px;
       background: rgba(255,255,255,0.07);
       border: 1px solid rgba(255,255,255,0.12);
@@ -131,9 +131,10 @@
       transition: background 0.15s, color 0.15s;
       white-space: nowrap;
     }
-    .orbit-btn:hover, .pc-btn:hover { background: rgba(255,255,255,0.13); color: #fff; }
+    .orbit-btn:hover, .pc-btn:hover, .dive-btn:hover { background: rgba(255,255,255,0.13); color: #fff; }
     .orbit-btn.active { background: rgba(99,102,241,0.35); border-color: rgba(99,102,241,0.6); color: #fff; }
     .pc-btn.active    { background: rgba(16,185,129,0.35);  border-color: rgba(16,185,129,0.6);  color: #fff; }
+    .dive-btn.active  { background: rgba(245,158,11,0.35);  border-color: rgba(245,158,11,0.6);  color: #fff; }
 
     #gs-root {
       width: 100%; height: 100%;
@@ -280,9 +281,13 @@
       <span class="text">Enter a prompt and hit Redesign →</span>
     </div>
     <div id="gs-root"></div>
+    <div id="cam-hud" style="display:none;position:absolute;top:10px;left:10px;z-index:20;
+      background:rgba(0,0,0,0.6);color:#0f0;font:11px/1.6 monospace;padding:6px 10px;
+      border-radius:6px;pointer-events:none;"></div>
     <div class="viewer-btns" id="viewer-btns">
       <button class="orbit-btn" id="orbit-btn">✦ Orbit</button>
       <button class="pc-btn"    id="pc-btn">⬡ Point Cloud</button>
+      <button class="dive-btn"  id="dive-btn">⊙ Center Zoom</button>
     </div>
   </div>
 
@@ -327,17 +332,13 @@ fetch(DEFAULT_IMAGE)
 // Auto-load default splat on startup — defer until layout is settled
 window.addEventListener('load', async () => {
   document.getElementById('drop-hint').style.display = 'none';
-  await loadPly('/output/default.ply');
-  viewerBtns.style.display = 'flex';
-  // Nudge camera to trigger Gaussian sort on first frame
-  if (activeViewer) {
-    const cam = activeViewer.camera;
-    cam.position.x += 0.0001;
-    if (activeViewer.controls) activeViewer.controls.update();
-    requestAnimationFrame(() => {
-      cam.position.x -= 0.0001;
-      if (activeViewer.controls) activeViewer.controls.update();
-    });
+  upsertStep('default_load', 'Loading default model', 'running', 'output/default.ply');
+  try {
+    await loadPly('/output/default.ply');
+    upsertStep('default_load', 'Loading default model', 'done', 'Ready — drag to orbit');
+    viewerBtns.style.display = 'flex';
+  } catch (e) {
+    upsertStep('default_load', 'Loading default model', 'error', e.message);
   }
 });
 
@@ -345,6 +346,7 @@ photoInput.addEventListener('change', e => {
   const file = e.target.files[0];
   if (!file) return;
   uploadedFile = file;
+  lastEditedUrl = null;   // new photo resets the edit chain
   thumb.src = URL.createObjectURL(file);
   thumb.style.display = 'block';
   document.querySelector('#upload-btn .cam').style.display = 'none';
@@ -379,6 +381,7 @@ async function go() {
 
   runBtn.disabled = true;
   stopOrbit();
+  if (diveRaf) { cancelAnimationFrame(diveRaf); diveRaf = null; diveBtn.classList.remove('active'); diveBtn.textContent = '⊙ Center Zoom'; }
   // reset point cloud for new scene
   if (pointsObject) { pointsObject.geometry.dispose(); pointsObject = null; }
   pointCloudMode = false;
@@ -411,77 +414,85 @@ async function go() {
     return;
   }
 
-  console.log('[redesign] SSE stream open /api/events/' + sessionId);
-  const es = new EventSource(`/api/events/${sessionId}`);
+  // Poll /api/status every 500ms — works through Cloudflare (no buffering unlike SSE)
+  console.log('[redesign] polling /api/status/' + sessionId);
+  const prefix = runPrefix;   // capture for this run's closure
+  let pollIdx  = 0;
+  let pollTimer = null;
 
-  es.onmessage = async e => {
-    const ev = JSON.parse(e.data);
-    if (ev.type === 'ping') return;
+  async function poll() {
+    try {
+      const res  = await fetch(`/api/status/${sessionId}?after=${pollIdx}`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
 
-    console.log('[sse]', ev.type, ev);
+      for (const ev of data.events) {
+        pollIdx++;
+        console.log('[poll]', ev.type, ev);
 
-    if (ev.type === 'step') {
-      upsertStep(runPrefix + ev.id, ev.label, ev.status, ev.detail || '', ev.image);
+        if (ev.type === 'step') {
+          upsertStep(prefix + ev.id, ev.label, ev.status, ev.detail || '', ev.image);
 
-    } else if (ev.type === 'done') {
-      es.close();
-      const plyUrl = ev.ply_url;
-      console.log('[redesign] done — fetching PLY', plyUrl);
+        } else if (ev.type === 'done') {
+          const plyUrl = ev.ply_url;
+          console.log('[redesign] done — fetching PLY', plyUrl);
 
-      // Step A: browser download directly from Vast.ai (or Mac fallback)
-      upsertStep(runPrefix + 'download', 'Downloading PLY', 'running', plyUrl);
-      const dlT0 = Date.now();
-      const plyResp = await fetch(plyUrl);
-      const plyBlob = await plyResp.blob();
-      const dlSec = ((Date.now() - dlT0) / 1000).toFixed(1);
-      const sizeMB = (plyBlob.size / 1e6).toFixed(1);
-      console.log(`[redesign] PLY downloaded ${sizeMB} MB in ${dlSec}s`);
-      upsertStep(runPrefix + 'download', 'Downloading PLY', 'done', `${dlSec}s — ${sizeMB} MB`);
+          upsertStep(prefix + 'download', 'Downloading PLY', 'running', plyUrl);
+          const dlT0 = Date.now();
+          const plyResp = await fetch(plyUrl);
+          const plyBlob = await plyResp.blob();
+          const dlSec  = ((Date.now() - dlT0) / 1000).toFixed(1);
+          const sizeMB = (plyBlob.size / 1e6).toFixed(1);
+          console.log(`[redesign] PLY downloaded ${sizeMB} MB in ${dlSec}s`);
+          upsertStep(prefix + 'download', 'Downloading PLY', 'done', `${dlSec}s — ${sizeMB} MB`);
 
-      // Step B: parse + render (pass original URL so viewer detects .ply from extension)
-      upsertStep(runPrefix + 'load', 'Parsing & rendering', 'running', '');
-      await loadPly(plyUrl);
-      upsertStep(runPrefix + 'load', 'Parsing & rendering', 'done', 'Ready — drag to orbit');
-      viewerBtns.style.display = 'flex';
-      // Store edited image as base for next run
-      if (ev.edited_image_url) {
-        lastEditedUrl = ev.edited_image_url;
-        thumb.src = lastEditedUrl;
-      }
-      runBtn.disabled = false;
+          upsertStep(prefix + 'load', 'Parsing & rendering', 'running', '');
+          await loadPly(plyUrl);
+          upsertStep(prefix + 'load', 'Parsing & rendering', 'done', 'Ready — drag to orbit');
+          viewerBtns.style.display = 'flex';
+          if (ev.edited_image_url) {
+            lastEditedUrl = ev.edited_image_url;
+            thumb.src = lastEditedUrl;
+          }
+          runBtn.disabled = false;
+          return;   // stop polling
 
-    } else if (ev.type === 'error') {
-      es.close();
-      console.error('[redesign] pipeline error', ev.message);
-      // Stop any spinning steps
-      for (const [id, el] of Object.entries(stepEls)) {
-        if (el.classList.contains('running')) {
-          el.classList.replace('running', 'error');
-          el.querySelector('.step-icon').innerHTML = iconFor('error');
+        } else if (ev.type === 'error') {
+          console.error('[redesign] pipeline error', ev.message);
+          for (const [id, el] of Object.entries(stepEls)) {
+            if (el.classList.contains('running')) {
+              el.classList.replace('running', 'error');
+              el.querySelector('.step-icon').innerHTML = iconFor('error');
+            }
+          }
+          upsertStep(prefix + 'err', 'Error', 'error', ev.message);
+          runBtn.disabled = false;
+          return;   // stop polling
         }
       }
-      upsertStep(runPrefix + 'err', 'Error', 'error', ev.message);
+      pollTimer = setTimeout(poll, 500);
+    } catch (err) {
+      console.error('[poll] error', err);
+      upsertStep(prefix + 'err', 'Error', 'error', err.message);
       runBtn.disabled = false;
     }
-  };
-
-  es.onerror = err => {
-    console.error('[sse] connection error', err);
-    es.close();
-    runBtn.disabled = false;
-  };
+  }
+  poll();
 }
 
 // ── Viewer buttons ────────────────────────────────────────────────────────────
 let orbitRaf      = null;
+let diveRaf       = null;
 let pointsObject  = null;
 let pointCloudMode = false;
 const orbitBtn    = document.getElementById('orbit-btn');
 const pcBtn       = document.getElementById('pc-btn');
+const diveBtn     = document.getElementById('dive-btn');
 const viewerBtns  = document.getElementById('viewer-btns');
 
 orbitBtn.addEventListener('click', toggleOrbit);
 pcBtn.addEventListener('click', togglePointCloud);
+diveBtn.addEventListener('click', startDiveIn);
 
 function toggleOrbit() {
   if (orbitRaf) {
@@ -527,6 +538,53 @@ function stopOrbit() {
     activeViewer.controls.enableRotate = true;
     activeViewer.controls.enablePan    = true;
   }
+}
+
+function startDiveIn() {
+  if (!activeViewer) return;
+  stopOrbit();
+
+  // Cancel any in-progress dive
+  if (diveRaf) { cancelAnimationFrame(diveRaf); diveRaf = null; }
+
+  const cam      = activeViewer.camera;
+  const controls = activeViewer.controls;
+  const target   = controls ? controls.target.clone() : new THREE.Vector3();
+
+  const startPos = cam.position.clone();
+  const dir      = startPos.clone().sub(target).normalize();
+  const endPos   = target.clone().add(dir.multiplyScalar(7.15));
+
+  const DURATION = 3200;   // ms
+  const startTime = performance.now();
+
+  diveBtn.classList.add('active');
+  diveBtn.textContent = '⊙ Diving…';
+  if (controls) controls.enabled = false;
+
+  function tick(now) {
+    const t    = Math.min((now - startTime) / DURATION, 1);
+    // Ease-in-out cubic
+    const ease = t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3) / 2;
+
+    cam.position.lerpVectors(startPos, endPos, ease);
+    cam.lookAt(target);
+    if (controls) controls.update();
+
+    if (t < 1) {
+      diveRaf = requestAnimationFrame(tick);
+    } else {
+      diveRaf = null;
+      diveBtn.classList.remove('active');
+      diveBtn.textContent = '⊙ Center Zoom';
+      if (controls) {
+        controls.target.copy(target);
+        controls.enabled = true;
+        controls.update();
+      }
+    }
+  }
+  diveRaf = requestAnimationFrame(tick);
 }
 
 function togglePointCloud() {
@@ -631,7 +689,8 @@ function loadPly(plyPath) {
 
       // Use bounding sphere radius so camera distance is correct regardless of rotation
       const radius = size.length() * 0.5;
-      const camPos = center.clone().add(new THREE.Vector3(0, 0, radius * 0.8));
+      // Use radius * 2 to match OrbitControls' own default — prevents jump on first click
+      const camPos = center.clone().add(new THREE.Vector3(0, 0, radius * 2));
       viewer.camera.position.copy(camPos);
       viewer.camera.up.set(0, -1, 0);
       viewer.camera.lookAt(center);
@@ -640,15 +699,33 @@ function loadPly(plyPath) {
         viewer.controls.minDistance = 0.1;
         viewer.controls.maxDistance = Infinity;
         viewer.controls.update();
+        viewer.controls.saveState();   // lock this as the reset position
       }
       viewer.start();
-      resolve();
+      // Wait for render loop to initialise, then nudge camera to trigger
+      // the initial Gaussian sort (otherwise first frame is unsorted/blurry)
+      setTimeout(() => {
+        const cam = viewer.camera;
+        const step = size.length() * 0.05;   // 5% of scene size — visible but snaps back
+        cam.position.z += step;
+        if (viewer.controls) viewer.controls.update();
+        requestAnimationFrame(() => {
+          cam.position.z -= step;
+          if (viewer.controls) viewer.controls.update();
+          resolve();
+        });
+      }, 300);
     })
     .catch(reject);
   });
 }
 
 // ── Log helpers ───────────────────────────────────────────────────────────────
+function scrollLog() {
+  const log = document.getElementById('log');
+  log.scrollTop = log.scrollHeight;
+}
+
 function addRunDivider(n, prompt) {
   const el = document.createElement('div');
   el.style.cssText = 'padding:10px 14px 6px; border-top:1px solid #222; margin-top:4px;';
@@ -656,6 +733,7 @@ function addRunDivider(n, prompt) {
     <div style="font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#444">Run ${n}</div>
     <div style="font-size:10.5px;color:#555;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${prompt}">${prompt}</div>`;
   document.getElementById('log').appendChild(el);
+  scrollLog();
 }
 
 function addPreview(src, label) {
@@ -663,6 +741,7 @@ function addPreview(src, label) {
   el.className = 'preview-block';
   el.innerHTML = `<div class="plabel">${label}</div><img src="${src}">`;
   document.getElementById('log').appendChild(el);
+  scrollLog();
 }
 
 function upsertStep(id, label, status, detail, image) {
@@ -696,6 +775,7 @@ function upsertStep(id, label, status, detail, image) {
         el.insertAdjacentElement('afterend', p);
       }
     }
+    scrollLog();
   } else {
     const el = document.createElement('div');
     el.className = `step ${status}`;
@@ -708,9 +788,22 @@ function upsertStep(id, label, status, detail, image) {
       <div class="step-time">${timeStr()}</div>`;
     log.appendChild(el);
     stepEls[id] = el;
-    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    scrollLog();
   }
 }
+
+// Camera HUD — updates every frame
+const camHud = document.getElementById('cam-hud');
+camHud.style.display = 'block';
+(function hudLoop() {
+  if (activeViewer) {
+    const cam = activeViewer.camera;
+    const tgt = activeViewer.controls ? activeViewer.controls.target : new THREE.Vector3();
+    const dist = cam.position.distanceTo(tgt).toFixed(3);
+    camHud.textContent = `cam dist: ${dist}`;
+  }
+  requestAnimationFrame(hudLoop);
+})();
 
 // Tick running steps every second
 setInterval(() => {
