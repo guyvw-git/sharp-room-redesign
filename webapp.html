@@ -264,7 +264,7 @@
       id="prompt"
       type="text"
       placeholder="Describe the redesign — e.g. 'Turn this into a moody speakeasy bar with leather seating'"
-    value="Add airplane wallpaper, multiple plants and some office space with a big screen"
+    value="Remove all couches from the main room. Add in a pool table with an orange felt and a woman in pink shorts playing on it. On the far side, put in a home office. The floor should have long horizontal white oak planks"
       autocomplete="off"
     >
   </div>
@@ -281,9 +281,30 @@
       <span class="text">Enter a prompt and hit Redesign →</span>
     </div>
     <div id="gs-root"></div>
+    <div id="fade-overlay" style="position:absolute;inset:0;background:#000;opacity:0;
+      pointer-events:none;z-index:5;transition:none;"></div>
     <div id="cam-hud" style="display:none;position:absolute;top:10px;left:10px;z-index:20;
       background:rgba(0,0,0,0.6);color:#0f0;font:11px/1.6 monospace;padding:6px 10px;
       border-radius:6px;pointer-events:none;"></div>
+    <div id="anim-panel" style="display:none;position:absolute;bottom:60px;left:50%;
+      transform:translateX(-50%);z-index:10;display:none;gap:8px;align-items:center;">
+      <select id="anim-select" style="padding:7px 14px;background:rgba(0,0,0,0.75);
+        border:1px solid rgba(255,255,255,0.12);border-radius:20px;color:#ccc;
+        font-size:12px;font-weight:500;cursor:pointer;outline:none;
+        backdrop-filter:blur(8px);appearance:none;-webkit-appearance:none;
+        padding-right:28px;background-image:url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2210%22 height=%226%22><path d=%22M0 0l5 6 5-6%22 fill=%22%23888%22/></svg>');
+        background-repeat:no-repeat;background-position:right 10px center;">
+        <option value="shockwave">⚡ Shockwave</option>
+        <option value="vortex">🌀 Vortex</option>
+        <option value="bigbang">💥 Big Bang</option>
+        <option value="mesh">🔗 Neural Mesh</option>
+        <option value="wave">🌊 Wave</option>
+      </select>
+      <button id="anim-play-btn" style="padding:7px 18px;background:rgba(255,255,255,0.07);
+        border:1px solid rgba(255,255,255,0.12);border-radius:20px;color:#ccc;
+        font-size:12px;font-weight:500;cursor:pointer;backdrop-filter:blur(8px);
+        white-space:nowrap;transition:background 0.15s,color 0.15s;">▶ Play</button>
+    </div>
     <div class="viewer-btns" id="viewer-btns">
       <button class="orbit-btn" id="orbit-btn">✦ Orbit</button>
       <button class="pc-btn"    id="pc-btn">⬡ Point Cloud</button>
@@ -335,8 +356,9 @@ window.addEventListener('load', async () => {
   upsertStep('default_load', 'Loading default model', 'running', 'output/default.ply');
   try {
     await loadPly('/output/default.ply');
+    await playIntroAnim();
     upsertStep('default_load', 'Loading default model', 'done', 'Ready — drag to orbit');
-    viewerBtns.style.display = 'flex';
+    viewerBtns.style.display = 'flex'; animPanel.style.display = 'flex';
   } catch (e) {
     upsertStep('default_load', 'Loading default model', 'error', e.message);
   }
@@ -423,6 +445,10 @@ async function go() {
   async function poll() {
     try {
       const res  = await fetch(`/api/status/${sessionId}?after=${pollIdx}`);
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`HTTP ${res.status} from /api/status — server may need restart. Body: ${text.slice(0,120)}`);
+      }
       const data = await res.json();
       if (data.error) throw new Error(data.error);
 
@@ -449,7 +475,7 @@ async function go() {
           upsertStep(prefix + 'load', 'Parsing & rendering', 'running', '');
           await loadPly(plyUrl);
           upsertStep(prefix + 'load', 'Parsing & rendering', 'done', 'Ready — drag to orbit');
-          viewerBtns.style.display = 'flex';
+          viewerBtns.style.display = 'flex'; animPanel.style.display = 'flex';
           if (ev.edited_image_url) {
             lastEditedUrl = ev.edited_image_url;
             thumb.src = lastEditedUrl;
@@ -587,6 +613,361 @@ function startDiveIn() {
   diveRaf = requestAnimationFrame(tick);
 }
 
+// ── Point Cloud Animations ─────────────────────────────────────────────────
+const animPanel   = document.getElementById('anim-panel');
+const animSelect  = document.getElementById('anim-select');
+const animPlayBtn = document.getElementById('anim-play-btn');
+
+let animRaf     = null;
+let animPts     = null;   // THREE.Points owned by animation system
+let animOrigPos = null;   // Float32Array — original positions for restore
+let animLines   = null;   // THREE.LineSegments for Neural Mesh
+let animCX = 0, animCY = 0, animCZ = 0;  // centroid
+
+const ANIM_STEP = 8;  // sample every 8th splat for animation cloud
+
+animPlayBtn.addEventListener('click', () => animRaf ? stopAnim() : startAnim());
+
+function startAnim() {
+  if (!activeViewer) return;
+  stopAnim();
+  if (!animPts) _buildAnimCloud();
+  if (!animPts) return;
+
+  // Hide splat, show anim point cloud
+  if (activeViewer.splatMesh) activeViewer.splatMesh.visible = false;
+  animPts.visible = true;
+  animPts.material.size = 0.022;
+
+  const name = animSelect.value;
+  if (name === 'mesh') _buildNeuralMesh();
+
+  animPlayBtn.textContent = '■ Stop';
+  animPlayBtn.style.color = '#f87171';
+  const t0 = performance.now();
+
+  function loop(now) {
+    const t = (now - t0) / 1000;
+    if      (name === 'shockwave') _tickShockwave(t);
+    else if (name === 'vortex')    _tickVortex(t);
+    else if (name === 'bigbang')   _tickBigBang(t);
+    else if (name === 'mesh')      _tickMesh(t);
+    else if (name === 'wave')      _tickWave(t);
+    animRaf = requestAnimationFrame(loop);
+  }
+  animRaf = requestAnimationFrame(loop);
+}
+
+function stopAnim() {
+  if (animRaf) { cancelAnimationFrame(animRaf); animRaf = null; }
+  animPlayBtn.textContent = '▶ Play';
+  animPlayBtn.style.color = '';
+
+  // Restore original positions
+  if (animPts && animOrigPos) {
+    animPts.geometry.attributes.position.array.set(animOrigPos);
+    animPts.geometry.attributes.position.needsUpdate = true;
+    animPts.material.size = 0.022;
+    animPts.visible = false;
+  }
+  // Remove mesh lines
+  if (animLines && activeViewer) {
+    activeViewer.threeScene.remove(animLines);
+    animLines.geometry.dispose(); animLines.material.dispose();
+    animLines = null;
+  }
+  // Restore splat / point cloud state
+  if (activeViewer && activeViewer.splatMesh) {
+    activeViewer.splatMesh.visible = !pointCloudMode;
+    if (pointsObject) pointsObject.visible = pointCloudMode;
+  }
+}
+
+// ── Intro Animation ────────────────────────────────────────────────────────
+// Phase 1 – Assembly  : dots scattered randomly in space fly to their positions
+// Phase 2 – Pause     : hold on the assembled point cloud
+// Phase 3 – Fade      : point cloud fades out, photorealistic splat revealed underneath
+async function playIntroAnim() {
+  if (!activeViewer) return;
+  _buildAnimCloud();
+  if (!animPts) return;
+
+  const splat    = activeViewer.splatMesh;
+  const controls = activeViewer.controls;
+  const posArr   = animPts.geometry.attributes.position.array;
+  const n        = animOrigPos.length / 3;
+
+  // ── Scatter: random sphere around centroid, 3× scene radius ──────────────
+  let maxD = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = animOrigPos[i*3]-animCX, dy = animOrigPos[i*3+1]-animCY, dz = animOrigPos[i*3+2]-animCZ;
+    const d  = Math.sqrt(dx*dx+dy*dy+dz*dz);
+    if (d > maxD) maxD = d;
+  }
+  // Dots start close together (0.4× scene radius) so they look like a merging blob
+  const scatterR = maxD * 0.4;
+
+  const startPos = new Float32Array(animOrigPos.length);
+  for (let i = 0; i < n; i++) {
+    const h1 = ((Math.sin(i * 127.1 + 311.7) * 43758.5453) % 1 + 1) % 1;
+    const h2 = ((Math.sin(i * 269.5 + 183.3) * 43758.5453) % 1 + 1) % 1;
+    const h3 = ((Math.sin(i *  47.3 +  91.1) * 43758.5453) % 1 + 1) % 1;
+    const theta = h1 * Math.PI * 2;
+    const phi   = Math.acos(2 * h2 - 1);          // uniform on sphere
+    const r     = scatterR * (0.3 + h3 * 0.7);    // tighter cluster, all within scene
+    startPos[i*3]   = animCX + r * Math.sin(phi) * Math.cos(theta);
+    startPos[i*3+1] = animCY + r * Math.cos(phi);
+    startPos[i*3+2] = animCZ + r * Math.sin(phi) * Math.sin(theta);
+  }
+
+  posArr.set(startPos);
+  animPts.geometry.attributes.position.needsUpdate = true;
+  animPts.material.opacity = 1.0;   // reset to fully opaque for each play
+  animPts.visible = true;
+  splat.visible   = false;
+
+  // Lock controls during the intro
+  if (controls) { controls.enabled = false; controls.autoRotate = false; }
+
+  const overlay = document.getElementById('fade-overlay');
+
+  // ── Timing ────────────────────────────────────────────────────────────────
+  const T_ASSEMBLE  = 2.2;   // dots fly in
+  const T_PAUSE     = 3.2;   // 1s pause on cloud
+  const T_FADE_OUT  = 3.9;   // overlay fully black (point cloud hidden)
+  const T_SWAP      = 3.9;   // swap happens at full black
+  const T_FADE_IN   = 5.0;   // overlay fades out, splat fully revealed
+  const T_TOTAL     = 5.0;
+
+  let assembled = false;
+  let swapped   = false;
+  const t0 = performance.now();
+
+  return new Promise(resolve => {
+    function tick(now) {
+      const t = (now - t0) / 1000;
+
+      // ── Phase 1: Assembly ────────────────────────────────────────────────
+      if (t < T_ASSEMBLE) {
+        const p    = t / T_ASSEMBLE;
+        const ease = p < 0.5 ? 4*p*p*p : 1 - Math.pow(-2*p+2, 3) / 2;
+        for (let i = 0; i < n; i++) {
+          posArr[i*3]   = startPos[i*3]   + (animOrigPos[i*3]   - startPos[i*3])   * ease;
+          posArr[i*3+1] = startPos[i*3+1] + (animOrigPos[i*3+1] - startPos[i*3+1]) * ease;
+          posArr[i*3+2] = startPos[i*3+2] + (animOrigPos[i*3+2] - startPos[i*3+2]) * ease;
+        }
+        animPts.geometry.attributes.position.needsUpdate = true;
+
+      // ── Phase 2: Pause ───────────────────────────────────────────────────
+      } else if (t < T_PAUSE) {
+        if (!assembled) {
+          assembled = true;
+          posArr.set(animOrigPos);
+          animPts.geometry.attributes.position.needsUpdate = true;
+        }
+
+      // ── Phase 3a: Fade overlay IN (black out point cloud) ────────────────
+      } else if (t < T_FADE_OUT) {
+        const p = (t - T_PAUSE) / (T_FADE_OUT - T_PAUSE);
+        overlay.style.opacity = p;
+
+      // ── Phase 3b: Swap + fade overlay OUT (reveal splat) ─────────────────
+      } else {
+        if (!swapped) {
+          swapped         = true;
+          animPts.visible = false;
+          splat.visible   = true;
+        }
+        const p = Math.min(1, (t - T_SWAP) / (T_FADE_IN - T_SWAP));
+        overlay.style.opacity = 1 - p;
+      }
+
+      if (t < T_TOTAL) {
+        animRaf = requestAnimationFrame(tick);
+      } else {
+        // Done — clean up overlay, restore controls
+        animRaf = null;
+        overlay.style.opacity = 0;
+        animPts.visible = false;
+        splat.visible   = true;
+        if (controls) {
+          controls.enabled      = true;
+          controls.enablePan    = true;
+          controls.enableZoom   = true;
+          controls.enableRotate = true;
+          controls.update();
+        }
+        resolve();
+      }
+    }
+    animRaf = requestAnimationFrame(tick);
+  });
+}
+
+function _buildAnimCloud() {
+  const splat = activeViewer.splatMesh;
+  const total = splat.getSplatCount();
+  const n = Math.floor(total / ANIM_STEP);
+  const pos = new Float32Array(n * 3);
+  const col = new Float32Array(n * 3);
+  const cv = new THREE.Vector3(), cc = new THREE.Vector4();
+  let sx = 0, sy = 0, sz = 0;
+
+  for (let i = 0; i < n; i++) {
+    splat.getSplatCenter(i * ANIM_STEP, cv, false);
+    splat.getSplatColor(i * ANIM_STEP, cc);
+    pos[i*3] = cv.x; pos[i*3+1] = cv.y; pos[i*3+2] = cv.z;
+    col[i*3] = cc.x; col[i*3+1] = cc.y; col[i*3+2] = cc.z;
+    sx += cv.x; sy += cv.y; sz += cv.z;
+  }
+
+  animCX = sx/n; animCY = sy/n; animCZ = sz/n;
+  animOrigPos = pos.slice();
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color',    new THREE.BufferAttribute(col, 3));
+  animPts = new THREE.Points(geo,
+    new THREE.PointsMaterial({ size: 0.022, vertexColors: true, sizeAttenuation: true,
+                                transparent: true, depthWrite: false, opacity: 1.0 }));
+  animPts.rotation.copy(splat.rotation);
+  animPts.visible = false;
+  activeViewer.threeScene.add(animPts);
+}
+
+// ── 1. Shockwave — spherical blast ring propagates from centroid ────────────
+function _tickShockwave(t) {
+  const arr  = animPts.geometry.attributes.position.array;
+  const orig = animOrigPos;
+  const n    = arr.length / 3;
+  const PERIOD = 2.8, SPEED = 7, WIDTH = 0.45, STRENGTH = 0.55;
+  const waveR = ((t % PERIOD) / PERIOD) * SPEED;
+
+  for (let i = 0; i < n; i++) {
+    const ox = orig[i*3]-animCX, oy = orig[i*3+1]-animCY, oz = orig[i*3+2]-animCZ;
+    const d  = Math.sqrt(ox*ox + oy*oy + oz*oz) + 1e-4;
+    const inf = Math.exp(-((d - waveR) ** 2) / (WIDTH * WIDTH)) * STRENGTH;
+    arr[i*3]   = orig[i*3]   + (ox/d) * inf;
+    arr[i*3+1] = orig[i*3+1] + (oy/d) * inf;
+    arr[i*3+2] = orig[i*3+2] + (oz/d) * inf;
+  }
+  animPts.geometry.attributes.position.needsUpdate = true;
+}
+
+// ── 2. Vortex — differential rotation, inner points spin faster ────────────
+function _tickVortex(t) {
+  const arr  = animPts.geometry.attributes.position.array;
+  const orig = animOrigPos;
+  const n    = arr.length / 3;
+
+  for (let i = 0; i < n; i++) {
+    const ox = orig[i*3]   - animCX;
+    const oy = orig[i*3+1] - animCY;
+    const oz = orig[i*3+2] - animCZ;
+    const r = Math.sqrt(ox*ox + oz*oz) + 1e-4;
+    const speed = 1.0 / (r * 0.35 + 0.25);
+    const angle = Math.atan2(oz, ox) + t * speed;
+    arr[i*3]   = animCX + r * Math.cos(angle);
+    arr[i*3+1] = animCY + oy + Math.sin(t * 0.5 + r * 1.2) * 0.12;
+    arr[i*3+2] = animCZ + r * Math.sin(angle);
+  }
+  animPts.geometry.attributes.position.needsUpdate = true;
+}
+
+// ── 3. Big Bang — explosion, float, then magnetic snap back ────────────────
+function _tickBigBang(t) {
+  const arr  = animPts.geometry.attributes.position.array;
+  const orig = animOrigPos;
+  const n    = arr.length / 3;
+  const PERIOD = 5.0;
+  const phase  = (t % PERIOD) / PERIOD;
+
+  // Smooth ease: explode 0→0.3, hold 0.3→0.55, implode 0.55→0.85, hold 0.85→1
+  let f;
+  if      (phase < 0.30) { const p = phase / 0.30;       f = p*p*(3-2*p); }
+  else if (phase < 0.55) { f = 1.0; }
+  else if (phase < 0.85) { const p = (phase-0.55)/0.30;  f = 1-p*p*(3-2*p); }
+  else                   { f = 0.0; }
+
+  for (let i = 0; i < n; i++) {
+    const ox = orig[i*3]-animCX, oy = orig[i*3+1]-animCY, oz = orig[i*3+2]-animCZ;
+    const d  = Math.sqrt(ox*ox + oy*oy + oz*oz) + 1e-4;
+    // Per-point variation using a fast hash
+    const h  = (Math.sin(i * 127.1 + 311.7) * 43758.5453) % 1;
+    const sc = 4.0 + h * 3.0;
+    arr[i*3]   = orig[i*3]   + (ox/d) * sc * f;
+    arr[i*3+1] = orig[i*3+1] + (oy/d) * sc * f;
+    arr[i*3+2] = orig[i*3+2] + (oz/d) * sc * f;
+  }
+  animPts.geometry.attributes.position.needsUpdate = true;
+}
+
+// ── 4. Neural Mesh — k-NN wireframe that pulses with energy ────────────────
+function _buildNeuralMesh() {
+  const MSTEP = 5;   // use every 5th anim point → ~1200 pts for 50k splat model
+  const orig  = animOrigPos;
+  const total = Math.floor(orig.length / 3);
+  const n     = Math.floor(total / MSTEP);
+  const K     = 4;
+  const verts = [];
+
+  for (let i = 0; i < n; i++) {
+    const ix = orig[i*MSTEP*3], iy = orig[i*MSTEP*3+1], iz = orig[i*MSTEP*3+2];
+    const dists = [];
+    for (let j = 0; j < n; j++) {
+      if (i === j) continue;
+      const dx = orig[j*MSTEP*3]-ix, dy = orig[j*MSTEP*3+1]-iy, dz = orig[j*MSTEP*3+2]-iz;
+      dists.push([j, dx*dx + dy*dy + dz*dz]);
+    }
+    dists.sort((a, b) => a[1] - b[1]);
+    for (let k = 0; k < K; k++) {
+      const j = dists[k][0];
+      if (j > i) {
+        verts.push(ix, iy, iz,
+                   orig[j*MSTEP*3], orig[j*MSTEP*3+1], orig[j*MSTEP*3+2]);
+      }
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(verts), 3));
+  animLines = new THREE.LineSegments(geo,
+    new THREE.LineBasicMaterial({ color: 0x00ddff, transparent: true, opacity: 0.35 }));
+  animLines.rotation.copy(activeViewer.splatMesh.rotation);
+  activeViewer.threeScene.add(animLines);
+
+  // Dim point cloud so mesh reads clearly
+  animPts.material.opacity = 0.3;
+  animPts.material.transparent = true;
+}
+
+function _tickMesh(t) {
+  if (!animLines) return;
+  const pulse = (Math.sin(t * 2.2) + 1) * 0.5;
+  animLines.material.opacity = 0.15 + pulse * 0.55;
+  const r = 0.2 + pulse * 0.6, g = 0.7 + pulse * 0.3, b = 1.0;
+  animLines.material.color.setRGB(r, g, b);
+  animPts.material.size = 0.018 + pulse * 0.018;
+}
+
+// ── 5. Wave — sine surface undulates across the room ───────────────────────
+function _tickWave(t) {
+  const arr  = animPts.geometry.attributes.position.array;
+  const orig = animOrigPos;
+  const n    = arr.length / 3;
+  const AMP = 0.28, FQ = 0.7;
+
+  for (let i = 0; i < n; i++) {
+    const ox = orig[i*3], oy = orig[i*3+1], oz = orig[i*3+2];
+    const w = Math.sin((ox - animCX) * FQ + t * 2.0)
+            * Math.cos((oz - animCZ) * FQ * 0.6 + t * 1.4);
+    arr[i*3]   = ox;
+    arr[i*3+1] = oy + w * AMP;
+    arr[i*3+2] = oz;
+  }
+  animPts.geometry.attributes.position.needsUpdate = true;
+}
+
 function togglePointCloud() {
   if (!activeViewer) return;
   pointCloudMode = !pointCloudMode;
@@ -659,6 +1040,9 @@ function loadPly(plyPath) {
   return new Promise((resolve, reject) => {
     const root = document.getElementById('gs-root');
 
+    if (animRaf) stopAnim();
+    animPts = null; animOrigPos = null;  // force rebuild for new scene
+
     if (activeViewer) {
       try { activeViewer.dispose(); } catch {}
       activeViewer = null;
@@ -689,8 +1073,8 @@ function loadPly(plyPath) {
 
       // Use bounding sphere radius so camera distance is correct regardless of rotation
       const radius = size.length() * 0.5;
-      // Use radius * 2 to match OrbitControls' own default — prevents jump on first click
-      const camPos = center.clone().add(new THREE.Vector3(0, 0, radius * 2));
+      // radius * 1 = 50% closer than the old radius*2 default
+      const camPos = center.clone().add(new THREE.Vector3(0, 0, radius * 1));
       viewer.camera.position.copy(camPos);
       viewer.camera.up.set(0, -1, 0);
       viewer.camera.lookAt(center);
