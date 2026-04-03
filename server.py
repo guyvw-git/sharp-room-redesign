@@ -185,7 +185,7 @@ def _ai_makeover(image_path: str, prompt: str, session_id: str) -> Path:
 
 
 # ── SHARP (local splat server) ────────────────────────────────────────────────
-SHARP_URL = os.environ.get('SHARP_URL', 'http://localhost:3001/splat')
+SHARP_URL = os.environ.get('SHARP_URL', 'http://localhost:3000/splat')
 
 def _run_sharp(image_path: str, _retries: int = 2) -> dict:
     for attempt in range(1, _retries + 2):
