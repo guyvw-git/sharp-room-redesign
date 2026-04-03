@@ -309,6 +309,7 @@
       <button class="orbit-btn" id="orbit-btn">✦ Orbit</button>
       <button class="pc-btn"    id="pc-btn">⬡ Point Cloud</button>
       <button class="dive-btn"  id="dive-btn">⊙ Center Zoom</button>
+      <button class="orbit-btn" id="dl-btn" title="Download PLY">⬇ PLY</button>
     </div>
   </div>
 
@@ -514,7 +515,18 @@ let pointCloudMode = false;
 const orbitBtn    = document.getElementById('orbit-btn');
 const pcBtn       = document.getElementById('pc-btn');
 const diveBtn     = document.getElementById('dive-btn');
+const dlBtn       = document.getElementById('dl-btn');
 const viewerBtns  = document.getElementById('viewer-btns');
+
+let currentPlyUrl = null;   // set each time a PLY loads
+
+dlBtn.addEventListener('click', () => {
+  if (!currentPlyUrl) return;
+  const a = document.createElement('a');
+  a.href = currentPlyUrl;
+  a.download = currentPlyUrl.split('/').pop() || 'splat.ply';
+  a.click();
+});
 
 orbitBtn.addEventListener('click', toggleOrbit);
 pcBtn.addEventListener('click', togglePointCloud);
@@ -1037,6 +1049,7 @@ async function currentBaseFile() {
 
 // ── Viewer ────────────────────────────────────────────────────────────────────
 function loadPly(plyPath) {
+  currentPlyUrl = plyPath;
   return new Promise((resolve, reject) => {
     const root = document.getElementById('gs-root');
 
